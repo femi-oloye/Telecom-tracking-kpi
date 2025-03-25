@@ -1,0 +1,19 @@
+# Use Python 3.9 as the base image
+FROM python:3.9
+
+# Set the working directory inside the container
+WORKDIR /mlflow
+
+# Install PostgreSQL client
+RUN apt-get update && apt-get install -y postgresql-client
+
+
+# Install MLflow and dependencies
+RUN pip install --no-cache-dir mlflow
+RUN pip install --no-cache-dir mlflow psycopg2-binary
+
+# Expose the MLflow server port
+EXPOSE 5000
+
+# Default command to start MLflow
+CMD ["mlflow", "server", "--backend-store-uri", "sqlite:///mlflow/mlflow.db", "--default-artifact-root", "/mlflow", "--host", "0.0.0.0"]

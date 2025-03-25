@@ -1,0 +1,10 @@
+streamlit
+pandas
+snowflake-connector-python
+plotly
+scikit-learn 
+pandas
+joblib
+uvicorn 
+fastapi
+mlflow

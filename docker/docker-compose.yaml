@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: telecom-app
+    volumes:
+      - ..:/app
+      
+    environment:
+      - PYTHONUNBUFFERED=1
+    tty: true
+
+  airflow:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.airflow
+    container_name: airflow
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    volumes:
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/data_pipeline/dags:/opt/airflow/dags
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/data_pipeline/logs:/opt/airflow/logs
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/data_pipeline/plugins:/opt/airflow/plugins
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/ml_model:/app/ml_model
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/data:/opt/airflow/data
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/docker/mlflow:/mlflow  # ✅ Add this line to mount /mlflow
+    ports:
+      - "8082:8080"
+    command: ["airflow", "standalone"]
+
+
+  postgres:
+    image: postgres:13
+    container_name: airflow-db
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # ✅ Persistent storage
+    ports:
+      - "5433:5432"
+
+  streamlit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: streamlit-dashboard
+    volumes:
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/dashboard:/app
+    ports:
+      - "8502:8501"
+    depends_on:
+      - api
+    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api  # Use the new API-specific Dockerfile
+    container_name: ml-api
+    volumes:
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/api:/app
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/ml_model:/app/ml_model
+    working_dir: /app/api
+    environment:
+      - PYTHONPATH=/app  # ✅ Ensures Python modules are found
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  mlflow:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mlflow
+    container_name: mlflow
+    environment:
+      - MLFLOW_TRACKING_URI=postgresql://airflow:airflow@postgres:5432/mlflow_db
+    depends_on:
+      - postgres
+    volumes:
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/docker/mlflow_artifacts:/mlflow  # ✅ Mount a local writable directory
+      - /home/oluwafemi/telcom-project-mlop-data_analytics/telecom project/telcom-env/Telecom-tracking-kpi/docker/mlflow:/mlflow
+    ports:
+      - "5000:5000"
+    command: >
+      sh -c "
+      until pg_isready -h postgres -p 5432 -U airflow; do sleep 2; done &&
+      PGPASSWORD=airflow psql -h postgres -U airflow -tc \"SELECT 1 FROM pg_database WHERE datname = 'mlflow_db'\" | grep -q 1 || PGPASSWORD=airflow psql -h postgres -U airflow -c \"CREATE DATABASE mlflow_db;\" &&
+      mlflow server --backend-store-uri postgresql://airflow:airflow@postgres:5432/mlflow_db --default-artifact-root /mlflow --host 0.0.0.0"
+
+volumes:
+  postgres_data:  # ✅ Persistent storage to prevent database loss
